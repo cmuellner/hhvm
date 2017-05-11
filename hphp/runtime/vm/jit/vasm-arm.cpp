@@ -111,11 +111,6 @@ vixl::Register X(Vreg64 r) {
   return x2a(pr);
 }
 
-vixl::Register W(Vreg64 r) {
-  PhysReg pr(r.asReg());
-  return x2a(pr).W();
-}
-
 vixl::Register W(Vreg32 r) {
   PhysReg pr(r.asReg());
   return x2a(pr).W();
@@ -129,6 +124,11 @@ vixl::Register W(Vreg16 r) {
 vixl::Register W(Vreg8 r) {
   PhysReg pr(r.asReg());
   return x2a(pr).W();
+}
+
+vixl::Register W(Vreg r) {
+  Vreg32 r32 = r;
+  return W(r32);
 }
 
 vixl::FPRegister D(Vreg r) {
@@ -247,10 +247,8 @@ struct Vgen {
   void emit(const copy2& i);
   void emit(const debugtrap& i) { a->Brk(0); }
   void emit(const fallthru& i) {}
-  void emit(const ldimmb& i);
   void emit(const ldimml& i);
   void emit(const ldimmq& i);
-  void emit(const ldimmw& i);
   void emit(const load& i);
   void emit(const store& i);
   void emit(const mcprep& i);
@@ -464,11 +462,11 @@ void Vgen::emit(const copy2& i) {
   }
 }
 
-void emitSimdImmInt(vixl::MacroAssembler* a, int64_t val, Vreg d) {
+void emitSimdImmInt(vixl::MacroAssembler* a, uint64_t val, Vreg d) {
   // Assembler::fmov emits a ldr from a literal pool if IsImmFP64 is false.
   // In that case, emit the raw bits into a GPR first and then move them
   // unmodified into destination SIMD
-  union { double dval; int64_t ival; };
+  union { double dval; uint64_t ival; };
   ival = val;
   if (vixl::Assembler::IsImmFP64(dval)) {
     a->Fmov(D(d), dval);
@@ -480,22 +478,15 @@ void emitSimdImmInt(vixl::MacroAssembler* a, int64_t val, Vreg d) {
   }
 }
 
-#define Y(vasm_opc, simd_w, vr_w, gpr_w, imm) \
-void Vgen::emit(const vasm_opc& i) {          \
-  if (i.d.isSIMD()) {                         \
-    emitSimdImmInt(a, i.s.simd_w(), i.d);     \
-  } else {                                    \
-    Vreg##vr_w d = i.d;                       \
-    a->Mov(gpr_w(d), imm);                    \
-  }                                           \
+void Vgen::emit(const ldimml& i) {
+  if (i.d.isSIMD()) { emitSimdImmInt(a, i.s.l(), i.d); }
+  else { a->Mov(W(i.d), i.s.l()); }
 }
 
-Y(ldimmb, b, 8, W, bAsUb(i.s))
-Y(ldimmw, w, 16, W, wAsUw(i.s))
-Y(ldimml, l, 32, W, i.s.l())
-Y(ldimmq, q, 64, X, i.s.q())
-
-#undef Y
+void Vgen::emit(const ldimmq& i) {
+  if (i.d.isSIMD()) { emitSimdImmInt(a, i.s.q(), i.d); }
+  else { a->Mov(X(i.d), i.s.q()); }
+}
 
 void Vgen::emit(const load& i) {
   if (i.d.isGP()) {
@@ -1106,6 +1097,18 @@ void lower(const VLS& env, Inst& inst, Vlabel b, size_t i) {}
 
 ///////////////////////////////////////////////////////////////////////////////
 
+void lower(const VLS& e, ldimmb& i, Vlabel b, size_t z) {
+  lower_impl(e.unit, b, z, [&] (Vout& v) {
+    v << ldimml{bAsUb(i.s), i.d};
+  });
+}
+
+void lower(const VLS& e, ldimmw& i, Vlabel b, size_t z) {
+  lower_impl(e.unit, b, z, [&] (Vout& v) {
+    v << ldimml{wAsUw(i.s), i.d};
+  });
+}
+
 /*
  * TODO: Using load size (ldr[bh]?), apply scaled address if 'disp' is unsigned
  */
@@ -1562,8 +1565,8 @@ void lower(const VLS& e, vasm_opc& i, Vlabel b, size_t z) { \
   });                                                   \
 }
 
-Y(storebi, storeb, ldimmb, i.s, wzr, b)
-Y(storewi, storew, ldimmw, i.s, wzr, w)
+Y(storebi, storeb, ldimml, Immed(bAsUb(i.s)), wzr, b)
+Y(storewi, storew, ldimml, Immed(wAsUw(i.s)), wzr, w)
 Y(storeli, storel, ldimml, i.s, wzr, l)
 Y(storeqi, store, ldimmq, Immed64(i.s.l()), wzr, q) //storeqi only supports 32-bit immediates
 

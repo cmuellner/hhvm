@@ -2544,7 +2544,7 @@ void insertLoadsAt(jit::vector<Vinstr>& code, unsigned& j,
           case Vconst::Long:
             return ldimml{int32_t(ivl->var->val.val), dst};
           case Vconst::Byte:
-            return ldimmb{uint8_t(ivl->var->val.val), dst};
+            return ldimml{uint8_t(ivl->var->val.val), dst};
         }
         not_reached();
       }());
